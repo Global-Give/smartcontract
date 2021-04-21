@@ -1,19 +1,11 @@
 /**
- *Submitted for verification at BscScan.com on 2021-03-01
-*/
-
-/**
- *Submitted for verification at BscScan.com on 2021-03-01
-*/
-
-/**
 
    #BEE
 
    #LIQ+#RFI+#SHIB+#DOGE = #BEE
 
    #GG features:
-   5% fee auto add to the liquidity pool to locked for 4 years
+   8% fee auto add to the liquidity pool to locked for 4 years
    2% fee auto distribute to all holders
    I created a black hole so #Bee token will deflate itself in supply with every transaction
 
@@ -853,7 +845,7 @@ contract GlobalGive is Context, IERC20, Admin, Ownable {
     using SafeMath for uint256;
     using Address for address;
 
-    mapping (address => uint256) private _rOwned;
+    mapping (address => uint256) private _rOwnvfd;
     mapping (address => uint256) private _tOwned;
     mapping (address => mapping (address => uint256)) private _allowances;
 
@@ -863,7 +855,7 @@ contract GlobalGive is Context, IERC20, Admin, Ownable {
     address[] private _excluded;
 
     uint256 private constant MAX = ~uint256(0);
-    uint256 private _tTotal = 1000000000 * 10**6 * 10**9;
+    uint256 private _tTotal = 120 * 10**6 * 10**9;
     uint256 private _rTotal = (MAX - (MAX % _tTotal));
     uint256 private _tFeeTotal;
 
@@ -883,8 +875,8 @@ contract GlobalGive is Context, IERC20, Admin, Ownable {
     bool inSwapAndLiquify;
     bool public swapAndLiquifyEnabled = true;
 
-    uint256 public _maxTxAmount = 5000000 * 10**6 * 10**9;
-    uint256 private numTokensSellToAddToLiquidity = 500000 * 10**6 * 10**9;
+    uint256 public _maxTxAmount = 12 * 10**5 * 10**9;
+    uint256 private numTokensSellToAddToLiquidity = 40 * 10**6 * 10**9;
 
     event MinTokensBeforeSwapUpdated(uint256 minTokensBeforeSwap);
     event SwapAndLiquifyEnabledUpdated(bool enabled);
@@ -1212,16 +1204,12 @@ contract GlobalGive is Context, IERC20, Admin, Ownable {
         // swap creates, and not make the liquidity event include any ETH that
         // has been manually sent to the contract
         uint256 initialBalance = address(this).balance;
-
         // swap tokens for ETH
         swapTokensForEth(half); // <- this breaks the ETH -> HATE swap when swap+liquify is triggered
-
         // how much ETH did we just swap into?
         uint256 newBalance = address(this).balance.sub(initialBalance);
-
         // add liquidity to uniswap
         addLiquidity(otherHalf, newBalance);
-
         emit SwapAndLiquify(half, newBalance, otherHalf);
     }
 
