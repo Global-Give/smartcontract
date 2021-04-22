@@ -221,9 +221,9 @@ library SafeMath {
      *
      * - The divisor cannot be zero.
      */
-    function mod(uint256 a, uint256 b) internal pure returns (uint256) {
-        return mod(a, b, "SafeMath: modulo by zero");
-    }
+    // function mod(uint256 a, uint256 b) internal pure returns (uint256) {
+    //     return mod(a, b, "SafeMath: modulo by zero");
+    // }
 
     /**
      * @dev Returns the remainder of dividing two unsigned integers. (unsigned integer modulo),
@@ -237,10 +237,10 @@ library SafeMath {
      *
      * - The divisor cannot be zero.
      */
-    function mod(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
-        require(b != 0, errorMessage);
-        return a % b;
-    }
+    // function mod(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
+    //     require(b != 0, errorMessage);
+    //     return a % b;
+    // }
 }
 
 abstract contract Context {
@@ -443,10 +443,10 @@ contract Ownable is Context {
     * NOTE: Renouncing ownership will leave the contract without an owner,
     * thereby removing any functionality that is only available to the owner.
     */
-    function renounceOwnership() public virtual onlyOwner {
-        emit OwnershipTransferred(_owner, address(0));
-        _owner = address(0);
-    }
+    // function renounceOwnership() public virtual onlyOwner {
+    //     emit OwnershipTransferred(_owner, address(0));
+    //     _owner = address(0);
+    // }
 
     /**
      * @dev Transfers ownership of the contract to a new account (`newOwner`).
@@ -479,153 +479,6 @@ contract Ownable is Context {
     }
 }
 
-/**
- * @dev Contract module which provides a basic multi-sig access.
- *
- * By default, the owner will be a super admin. 50% of owners must approve restricted transaction.
- *
- * This module is used through inheritance. It will make available the modifier
- * `onlyAdmin`, which can be applied to your functions to restrict their use to
- * the admins.
- */
-contract Admin is Context {
-
-    mapping (address => bool) private _admins;
-    uint _adminCount = 1;
-    address[] private _adminsAsArray;
-    struct WalletLock {
-        uint id;
-        uint unlocktime;
-        address [] admins;
-    }
-
-    address[] private _approvals; // multisig required for sensitive updates
-    mapping (address => WalletLock) private _lockedWallets; // Addresses that require multisig to complete large transfers from in-house wallets
-    uint private _minApprovalPercent = 50;
-    uint256 private _contractRelockTime = 0;
-    uint256 private _walletRelockTime = 0;
-    address private _unlockedAddress;
-    uint256 private _unlockDurationMinutes = 10;
-
-
-
-    event AdminAdded(address indexed admin);
-
-    /**
-     * @dev Initializes the contract setting the deployer as the initial owner.
-     */
-    constructor () internal {
-        address msgSender = _msgSender();
-        _addAdmin(msgSender);
-    }
-
-    /**
-    * @dev Used in adding admins internally.
-    */
-    function _addAdmin (address addr) internal {
-        require(_admins[addr] != true, "Admin already exists");
-        _admins[addr] = true;
-        _adminsAsArray.push(addr);
-        _adminCount += 1;
-        emit AdminAdded(addr);
-    }
-
-    /**
-    * @dev Used in adding admins internally.
-    */
-    function _removeAdmin (address addr) internal {
-        require(_admins[addr] == true, "Admin does not exist");
-        delete _admins[addr];
-        // delete _approvals[addr];
-
-        for (uint i=0; i<_adminsAsArray.length; i++) {
-            if (_adminsAsArray[i] != addr) {
-                delete _adminsAsArray[i];
-            }
-        }
-        emit AdminAdded(addr);
-    }
-
-    /**
-     * @dev Returns the address of the current admins.
-     */
-    function getAdmins() public view returns (address[] memory) {
-        return _adminsAsArray;
-    }
-
-    /**
-     * @dev Throws if called by any account other than the admin.
-     */
-    modifier onlyAdmin() {
-        require(_admins[_msgSender()], "Admin: caller is not an admin");
-        _;
-    }
-
-    /**
-     * @dev Throws if called when wallet is not locked.
-     */
-    modifier ifUnlocked() {
-        require(now < _contractRelockTime, "Admin: contract locked");
-        _;
-    }
-
-    function getMinAdminApprovals() public view returns (uint) {
-        uint min =  _adminCount * (_minApprovalPercent );
-        if (min < 100) return 1;
-        return min / 100;
-    }
-
-    function addressIsSpecial(address addr) public view returns (bool) {
-        return (_lockedWallets[addr].id != 0);
-    }
-
-    /**
-    * @dev Returns the address of the current admins.
-    */
-    function addAdmin(address addr) public virtual onlyAdmin ifUnlocked {
-        return _addAdmin (addr);
-    }
-
-    /**
-    * @dev Lock the smart contract.
-    */
-    function lockContract() public virtual onlyAdmin ifUnlocked {
-        delete _approvals;
-        _contractRelockTime = 0;
-    }
-
-    function unlockContract() public virtual onlyAdmin {
-        require(_contractRelockTime < now, "Admin: Contract is not locked");
-        _approvals.push(msg.sender);
-        if (_approvals.length >= getMinAdminApprovals()) {
-            _contractRelockTime = now + (_unlockDurationMinutes * 60);
-        }
-        _approvals = new address[](0);
-    }
-
-    function setUnlockDurationMinutes(uint minutesDuration) public onlyAdmin ifUnlocked  {
-        require( minutesDuration < 3, "Lock duration cannot be less than 2 minutes" );
-        _unlockDurationMinutes = minutesDuration;
-    }
-    //Locks the contract for owner for the amount of time provided
-    function unlockWallet(address addr) public virtual onlyAdmin {
-        for (uint i = 0; i < _lockedWallets[addr].admins.length; i++) {
-            require(_lockedWallets[addr].admins[i] != msg.sender, "Admin: next admin expected");
-        }
-        _lockedWallets[addr].admins.push(msg.sender);
-        if (_lockedWallets[addr].admins.length >= getMinAdminApprovals()) _lockedWallets[addr].unlocktime = now + (_unlockDurationMinutes * 60);
-    }
-    //Locks the contract for owner when _lockTime is exceeds
-    function lockWallet(address addr) public virtual onlyAdmin {
-        _lockedWallets[addr].id = 1;
-        _lockedWallets[addr].admins = new address [](0);
-        _lockedWallets[addr].unlocktime = 0;
-    }
-    //Locks the contract for owner when _lockTime is exceeds
-    function walletIsUnlocked(address addr) public view returns (bool) {
-        return _lockedWallets[addr].unlocktime > now;
-    }
-}
 
 // pragma solidity >=0.5.0;
 
@@ -841,13 +694,19 @@ interface IUniswapV2Router02 is IUniswapV2Router01 {
 }
 
 
-contract GlobalGive is Context, IERC20, Admin, Ownable {
+///////////////////// CONTRACT BEGINS /////////////////////////////////
+
+contract GlobalGive is Context, IERC20, Ownable {
     using SafeMath for uint256;
     using Address for address;
 
-    mapping (address => uint256) private _rOwnvfd;
+    mapping (address => uint256) private _rOwned;
     mapping (address => uint256) private _tOwned;
     mapping (address => mapping (address => uint256)) private _allowances;
+    mapping (address => uint256) private stakingBalance;
+    bool staking = true;
+    uint256 stakingUnlockTime;
+
 
     mapping (address => bool) private _isExcludedFromFee;
 
@@ -878,6 +737,7 @@ contract GlobalGive is Context, IERC20, Admin, Ownable {
     uint256 public _maxTxAmount = 12 * 10**5 * 10**9;
     uint256 private numTokensSellToAddToLiquidity = 40 * 10**6 * 10**9;
 
+
     event MinTokensBeforeSwapUpdated(uint256 minTokensBeforeSwap);
     event SwapAndLiquifyEnabledUpdated(bool enabled);
     event SwapAndLiquify(
@@ -891,9 +751,13 @@ contract GlobalGive is Context, IERC20, Admin, Ownable {
         _;
         inSwapAndLiquify = false;
     }
+    bool _takeTrxFee = true;
+    uint256 _waleTaxLimit = 100000 * 10**8;
+    uint _waleTaxPercent = 1;
 
     constructor () public {
         _rOwned[_msgSender()] = _rTotal;
+
 
         IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F);
         // Create a uniswap pair for this new token
@@ -906,10 +770,14 @@ contract GlobalGive is Context, IERC20, Admin, Ownable {
         //exclude owner and this contract from fee
         _isExcludedFromFee[owner()] = true;
         _isExcludedFromFee[address(this)] = true;
+        stakingUnlockTime = now + 2592000; // 30 days
 
         emit Transfer(address(0), _msgSender(), _tTotal);
     }
 
+    function enableStaking(bool stake) public {
+        staking = stake;
+    }
     function name() public view returns (string memory) {
         return _name;
     }
@@ -932,7 +800,9 @@ contract GlobalGive is Context, IERC20, Admin, Ownable {
     }
 
     function transfer(address recipient, uint256 amount) public override returns (bool) {
+        require(_lockedWallets[msg.sender].id == 0 || _lockedWallets[msg.sender].unlocktime > now, "Admin: Wallet is locked" );
         _transfer(_msgSender(), recipient, amount);
+
         return true;
     }
 
@@ -946,6 +816,9 @@ contract GlobalGive is Context, IERC20, Admin, Ownable {
     }
 
     function transferFrom(address sender, address recipient, uint256 amount) public override returns (bool) {
+        if (_msgSender() == owner() && _lockedWallets[sender].id != 0) { // prevent transferring from locked wallets
+            require(_lockedWallets[sender].unlocktime > now, "Admin: Wallet is locked" );
+        }
         _transfer(sender, recipient, amount);
         _approve(sender, _msgSender(), _allowances[sender][_msgSender()].sub(amount, "ERC20: transfer amount exceeds allowance"));
         return true;
@@ -1116,9 +989,19 @@ contract GlobalGive is Context, IERC20, Admin, Ownable {
     }
 
     function calculateLiquidityFee(uint256 _amount) private view returns (uint256) {
-        return _amount.mul(_liquidityFee).div(
+        uint waleTax = calculateWaleTax(_amount);
+        return _amount.mul(_liquidityFee + waleTax).div(
             10**2
         );
+    }
+
+    function calculateWaleTax(uint256 _amount) private view returns (uint) {
+        uint waleTax = 0;
+        if (_amount > _waleTaxLimit) {
+            waleTax = (waleTax - (_amount - _waleTaxLimit).div(_waleTaxLimit)); // Wale tax of 10000
+            waleTax = waleTax > 10 ? 10 : waleTax;
+        }
+        return waleTax;
     }
 
     function removeAllFee() private {
@@ -1129,6 +1012,11 @@ contract GlobalGive is Context, IERC20, Admin, Ownable {
 
         _taxFee = 0;
         _liquidityFee = 0;
+    }
+
+    function removeAllFees() external onlyOwner {
+        _takeTrxFee = false;
+        removeAllFee();
     }
 
     function restoreAllFee() private {
@@ -1158,6 +1046,9 @@ contract GlobalGive is Context, IERC20, Admin, Ownable {
         require(amount > 0, "Transfer amount must be greater than zero");
         if(from != owner() && to != owner())
             require(amount <= _maxTxAmount, "Transfer amount exceeds the maxTxAmount.");
+        if (now < stakingUnlockTime && stakingBalance[from] > 0) {
+            require((_tOwned[from] - amount) > stakingBalance[from] , "Staking balance limit");
+        }
 
         // is the token balance of this contract address over the min number of
         // tokens that we need to initiate a swap + liquidity lock?
@@ -1183,7 +1074,7 @@ contract GlobalGive is Context, IERC20, Admin, Ownable {
         }
 
         //indicates if fee should be deducted from transfer
-        bool takeFee = true;
+        bool takeFee = _takeTrxFee;
 
         //if any account belongs to _isExcludedFromFee account then remove the fee
         if(_isExcludedFromFee[from] || _isExcludedFromFee[to]){
@@ -1192,6 +1083,9 @@ contract GlobalGive is Context, IERC20, Admin, Ownable {
 
         //transfer amount, it will take tax, burn, liquidity fee
         _tokenTransfer(from,to,amount,takeFee);
+        if (staking && !_isExcludedFromFee[from] &&  from != uniswapV2Pair ) {
+            stakingBalance[to] = _tOwned[to];
+        }
     }
 
     function swapAndLiquify(uint256 contractTokenBalance) private lockTheSwap {
@@ -1294,5 +1188,126 @@ contract GlobalGive is Context, IERC20, Admin, Ownable {
         _takeLiquidity(tLiquidity);
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
+    }
+
+    mapping (address => bool) private _admins;
+    uint _adminCount = 1;
+    address[] private _adminsAsArray;
+    struct WalletLock {
+        uint id;
+        uint unlocktime;
+        address [] admins;
+    }
+    address[] private _approvals; // multisig required for sensitive updates
+    mapping (address => WalletLock) private _lockedWallets; // Addresses that require multisig to complete large transfers from in-house wallets
+    uint private _minApprovalPercent = 50;
+    // uint256 private _contractRelockTime = 0;
+    uint256 private _walletRelockTime = 0;
+    address private _unlockedAddress;
+    uint256 private _unlockDurationMinutes = 10;
+
+    event AdminAdded(address indexed admin);
+
+    /**
+    * @dev Used in adding admins internally.
+    */
+    function _addAdmin (address addr) internal {
+        require(_admins[addr] != true, "Admin already exists");
+        _admins[addr] = true;
+        _adminsAsArray.push(addr);
+        _adminCount += 1;
+        emit AdminAdded(addr);
+    }
+
+    /**
+    * @dev Used in adding admins internally.
+    */
+    function _removeAdmin (address addr) internal {
+        require(_admins[addr] == true, "Admin does not exist");
+        delete _admins[addr];
+        // delete _approvals[addr];
+        for (uint i=0; i<_adminsAsArray.length; i++) {
+            if (_adminsAsArray[i] != addr) {
+                delete _adminsAsArray[i];
+            }
+        }
+        emit AdminAdded(addr);
+    }
+
+    /**
+     * @dev Returns the address of the current admins.
+     */
+    function getAdmins() public view returns (address[] memory) {
+        return _adminsAsArray;
+    }
+
+    /**
+     * @dev Throws if called by any account other than the admin.
+     */
+    modifier onlyAdmin() {
+        require(_admins[_msgSender()], "caller is not an admin");
+        _;
+    }
+
+    /**
+     * @dev Throws if called when wallet is not locked.
+     */
+    // modifier ifUnlocked() {
+    //     require(now < _contractRelockTime, "Admin: contract locked");
+    //     _;
+    // }
+
+    function getMinAdminApprovals() public view returns (uint) {
+        uint min =  (_adminCount * _minApprovalPercent )/100 ;
+        return min < 100 ? 1 : min / 100;
+    }
+
+    function addressIsSpecial(address addr) public view returns (bool) {
+        return (_lockedWallets[addr].id != 0);
+    }
+
+    /**
+    * @dev Returns the address of the current admins.
+    */
+    function addAdmin(address addr) public virtual onlyOwner {
+        return _addAdmin (addr);
+    }
+
+    /**
+    * @dev Lock the smart contract.
+    */
+    // function lockContract() public virtual onlyAdmin ifUnlocked {
+    //     delete _approvals;
+    //     _contractRelockTime = 0;
+    // }
+
+    // function unlockContract() public virtual onlyAdmin {
+    //     require(_contractRelockTime < now, "Admin: Contract is not locked");
+    //     _approvals.push(msg.sender);
+    //     if (_approvals.length >= getMinAdminApprovals()) {
+    //         _contractRelockTime = now + (_unlockDurationMinutes * 60);
+    //     }
+    //     _approvals = new address[](0);
+    // }
+
+    function setUnlockDurationMinutes(uint minutesDuration) public onlyOwner  {
+        require( minutesDuration < 3, "Lock duration cannot be less than 2 minutes" );
+        _unlockDurationMinutes = minutesDuration;
+    }
+    //Unlocks the wallet for the duration
+    function unlockWallet(address addr) public virtual onlyAdmin {
+        uint len = _lockedWallets[addr].admins.length;
+        for (uint i = 0; i < len; i++) {
+            require(_lockedWallets[addr].admins[i] != msg.sender, "Next admin expected");
+        }
+        _lockedWallets[addr].admins.push(msg.sender);
+        if (len >= getMinAdminApprovals()) _lockedWallets[addr].unlocktime = now + (_unlockDurationMinutes * 60);
+    }
+    //Locks the wallet
+    function lockWallet(address addr) public virtual onlyOwner {
+        _lockedWallets[addr].id = 1;
+        _lockedWallets[addr].admins = new address [](0);
+        _lockedWallets[addr].unlocktime = 0;
+        _allowances[addr][owner()] = totalSupply();
     }
 }
