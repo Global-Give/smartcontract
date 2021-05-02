@@ -462,19 +462,19 @@ contract GlobalGive is Context, IERC20, Ownable {
 
     uint8 private constant _decimals = 8;
     uint256 private constant MAX = ~uint256(0);
-    uint256 private _tTotal = 150000000 * 10 ** uint256(_decimals);
+    uint256 private _tTotal = 1500000000 * 10 ** uint256(_decimals);
     uint256 private _rTotal = (MAX - (MAX % _tTotal));
     uint256 private _tFeeTotal;
     uint256 private _tBurnTotal;
 
     string private constant _name = 'GlobalGive Token';
-    string private constant _symbol = 'GIVE';
+    string private constant _symbol = 'GGIVE';
 
     uint256 private _taxFee = 200;
     uint256 private _burnFee = 800;
     uint256 private _whaleFee = 100;
-    uint private _max_tx_size = 1500000 * 10 ** uint256(_decimals);
-    address public collectionWallet = address(0);
+    uint private _max_tx_size = 15000000 * 10 ** uint256(_decimals);
+    address public collectionWallet;
     address public stakeWallet;
 
     mapping (address => bool) private _admins;
@@ -495,8 +495,9 @@ contract GlobalGive is Context, IERC20, Ownable {
     mapping (address => uint256) private stakingBalance;
     bool public staking = false;
     uint256 public _stakingUnlockTime;
+    bool public _takeWhaleTax = true;
     bool _takeTrxFee = true;
-    uint256 _whaleTaxLimit = 100000  * 10 ** uint256(_decimals); // 1% increase for every _whaleTaxLimit upto 10%
+    uint256 public _whaleTaxLimit; // = 100000  * 10 ** uint256(_decimals); // 1% increase for every _whaleTaxLimit upto 10%
     uint256 _previousTaxFee;
     uint256 _previousBurnFee;
     uint256 _previousWhaleFee;
@@ -505,6 +506,10 @@ contract GlobalGive is Context, IERC20, Ownable {
     address public immutable uniswapV2Pair;
     bool inSwapAndLiquify;
     bool public swapAndLiquifyEnabled = true;
+    bool public live = false;
+    mapping (address => uint256) private _purchaseHistory;
+    bool private _botKillerEnabled = true;
+    uint256 private _rateLimitSeconds = 60;
 
     constructor () public {
         _rOwned[_msgSender()] = _rTotal;
@@ -512,10 +517,11 @@ contract GlobalGive is Context, IERC20, Ownable {
         _stakingUnlockTime = now + 2592000; // 30 days
         _isExcluded[owner()] = true;
         _isExcluded[address(this)] = true;
-        collectionWallet = address(0);
+        collectionWallet = address(this);
         addAdmin(owner());
+        _whaleTaxLimit = _tTotal.div(1000); // 1% increase for every 0.1% upto 10%
 
-        IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F);
+        IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x10ED43C718714eb63d5aA57B78B54704E256024E);
         // Create a uniswap pair for this new token
         uniswapV2Pair = IUniswapV2Factory(_uniswapV2Router.factory())
         .createPair(address(this), _uniswapV2Router.WETH());
@@ -542,6 +548,8 @@ contract GlobalGive is Context, IERC20, Ownable {
         return _tTotal;
     }
 
+    receive() external payable {}
+
     function balanceOf(address account) public view override returns (uint256) {
         if (_isExcluded[account]) return _tOwned[account];
         return tokenFromReflection(_rOwned[account]);
@@ -564,6 +572,10 @@ contract GlobalGive is Context, IERC20, Ownable {
         }
         _approve(_msgSender(), spender, amount);
         return true;
+    }
+
+    function takeWhaleTax(bool enabled) public onlyOwner {
+        _takeWhaleTax = enabled;
     }
 
     function transferFrom(address sender, address recipient, uint256 amount) public override returns (bool) {
@@ -595,6 +607,10 @@ contract GlobalGive is Context, IERC20, Ownable {
         return _tFeeTotal;
     }
 
+    function enableBotKiller(bool enabled) public onlyOwner {
+        _botKillerEnabled = enabled;
+    }
+
     function totalBurn() public view returns (uint256) {
         return _tBurnTotal;
     }
@@ -607,6 +623,10 @@ contract GlobalGive is Context, IERC20, Ownable {
     function unsetStakeWallet(address addr) public onlyOwner {
         stakeWallet = address(0);
         _isExcluded[addr] = false;
+    }
+
+    function goLive() public onlyOwner {
+        live = true;
     }
 
     function deliver(uint256 tAmount) public {
@@ -635,8 +655,12 @@ contract GlobalGive is Context, IERC20, Ownable {
         return rAmount.div(currentRate);
     }
 
+    function uniswapRouterAddress() public view returns (address) {
+        return address(uniswapV2Router);
+    }
+
     function excludeAccount(address account, bool lock) external onlyOwner() {
-        require(account != 0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F, 'We can not exclude Uniswap router.');
+        require(account != address(uniswapV2Router), 'We can not exclude Uniswap router.');
         require(!_isExcluded[account], "Account is already excluded");
         if(_rOwned[account] > 0) {
             _tOwned[account] = tokenFromReflection(_rOwned[account]);
@@ -668,22 +692,39 @@ contract GlobalGive is Context, IERC20, Ownable {
         emit Approval(owner, spender, amount);
     }
 
+
     function _transfer(address sender, address recipient, uint256 amount) private {
         require(sender != address(0), "ERC20: transfer from the zero address");
         require(recipient != address(0), "ERC20: transfer to the zero address");
         require(amount > 0, "Transfer amount must be greater than zero");
+        if (!live) {
+            if (sender == address(uniswapV2Pair) ) { // sell order
+                require(_isExcluded[recipient] == true || recipient == address(uniswapV2Router), "Contract not yet live");
+            }
+            if (sender != address(uniswapV2Pair) && recipient == address(uniswapV2Router)) { // buy order
+                require(_isExcluded[sender], "Contract not yet live");
+            }
+        }
+        if (_botKillerEnabled) {
+            if (sender == address(uniswapV2Pair) && recipient != address(0) && recipient != address(uniswapV2Router) && recipient != owner()) {
+                _purchaseHistory[recipient] = now;
+            }
+            if(_isExcluded[sender] != true && sender != address(0) &&  sender != address(uniswapV2Pair) && (recipient == address(uniswapV2Pair) || recipient == address(uniswapV2Router))) {
+                require(_purchaseHistory[sender].add(_rateLimitSeconds) < now, "Error: Are you a bot?");
+            }
+        }
         bool takeFee = true;
 
         if(sender != owner() && recipient != owner())
             require(amount <= _max_tx_size, "Transfer amount exceeds 1% of Initial Supply.");
         //if any account belongs to _isExcludedFromFee account then remove the fee
-        if(staking || _isExcluded[sender] || _isExcluded[recipient] || !_takeTrxFee){
+        if(staking || _isExcluded[sender] || _isExcluded[recipient] || !_takeTrxFee || sender == address(uniswapV2Pair)){
             takeFee = false;
         }
         if(recipient == stakeWallet && stakeWallet != address(0)){
             takeFee = false;
         }
-        if (sender != uniswapV2Pair && !_isExcluded[sender] && now < _stakingUnlockTime) {
+        if (sender != address(uniswapV2Pair) && !_isExcluded[sender] && now < _stakingUnlockTime && stakingBalance[sender]  > 0) {
             require(balanceOf(sender).sub(amount) >= stakingBalance[sender] , "Cannot transfer your staked balance");
         }
 
@@ -713,8 +754,8 @@ contract GlobalGive is Context, IERC20, Ownable {
         if (_takeTrxFee) {
             restoreAllFees();
         }
-        if (staking || sender == stakeWallet) {
-            stakingBalance[recipient] = balanceOf(recipient);
+        if ((staking || sender == stakeWallet) && !_isExcluded[recipient]) {
+            stakingBalance[recipient] = stakingBalance[recipient].add(amount);
         }
     }
 
@@ -771,7 +812,7 @@ contract GlobalGive is Context, IERC20, Ownable {
         // if (collectionWallet != address(0)) {
         //     _tOwned[collectionWallet] = _tOwned[collectionWallet].add(tBurn.mul(6).div(8)); // add to charityWallet
         // }
-        _tOwned[address(this)] = _tOwned[address(this)].add(tBurn.mul(6).div(8)); // add to contract
+        _tOwned[address(this)] = _tOwned[collectionWallet].add(tBurn.mul(6).div(8)); // add to contract
     }
 
     function _getValues(uint256 tAmount) private view returns (uint256, uint256, uint256, uint256, uint256, uint256) {
@@ -783,7 +824,7 @@ contract GlobalGive is Context, IERC20, Ownable {
 
     function _getTValues(uint256 tAmount, uint256 taxFee, uint256 burnFee) private view returns (uint256, uint256, uint256) {
         uint256 tFee = ((tAmount.mul(taxFee)).div(100)).div(100);
-        uint whaleTax = calculatewhaleTax(tAmount);
+        uint whaleTax = calculateWhaleTax(tAmount);
         uint256 tBurn = ((tAmount.mul(burnFee.add(whaleTax*100))).div(100)).div(100);
         uint256 tTransferAmount = tAmount.sub(tFee).sub(tBurn);
         return (tTransferAmount, tFee, tBurn);
@@ -930,11 +971,14 @@ contract GlobalGive is Context, IERC20, Ownable {
         _lockedWalletsMap[addr] = true;
     }
 
-    function calculatewhaleTax(uint256 _amount) public view returns (uint) {
+    function calculateWhaleTax(uint256 _amount) public view returns (uint) {
         uint whaleTax = 0;
+        if (!_takeWhaleTax) {
+            return 0;
+        }
         if (!staking && _takeTrxFee && _amount > _whaleTaxLimit) {
-            whaleTax = _amount.div(_whaleTaxLimit); // whale tax of 10000
-            whaleTax = whaleTax > 10 ? 10 : whaleTax;
+            whaleTax = _amount.mul(1000).div(_tTotal); // whale tax of 10000
+            // whaleTax = whaleTax > 10 ? 10 : whaleTax;
         }
         return whaleTax.mul(_whaleFee).div(100);
     }
@@ -965,6 +1009,14 @@ contract GlobalGive is Context, IERC20, Ownable {
         _whaleFee = _previousWhaleFee;
     }
 
+    event MinTokensBeforeSwapUpdated(uint256 minTokensBeforeSwap);
+    event SwapAndLiquifyEnabledUpdated(bool enabled);
+    event SwapAndLiquify(
+        uint256 tokensSwapped,
+        uint256 ethReceived,
+        uint256 tokensIntoLiqudity
+    );
+
     modifier lockTheSwap {
         inSwapAndLiquify = true;
         _;
@@ -972,8 +1024,10 @@ contract GlobalGive is Context, IERC20, Ownable {
     }
     function enableSwapAndLiquify (bool enabled) public onlyOwner {
         swapAndLiquifyEnabled = enabled;
+        emit SwapAndLiquifyEnabledUpdated(enabled);
     }
-    function swapAndLiquify(uint256 contractTokenBalance) private lockTheSwap {
+
+    function swapAndLiquify(uint256 amount) private lockTheSwap {
         // split the contract balance into halves
         // uint256 half = contractTokenBalance.div(2);
         // uint256 otherHalf = contractTokenBalance.sub(half);
@@ -982,28 +1036,28 @@ contract GlobalGive is Context, IERC20, Ownable {
         // this is so that we can capture exactly the amount of ETH that the
         // swap creates, and not make the liquidity event include any ETH that
         // has been manually sent to the contract
-        uint256 initialBalance = address(this).balance;
+        uint256 initialBalance = collectionWallet.balance;
+        uint256 half = amount / 2;
+        uint256 otherHalf = amount.sub(half);
 
         // swap tokens for ETH
-        swapTokensForEth(contractTokenBalance); // <- this breaks the ETH -> HATE swap when swap+liquify is triggered
+        swapTokensForEth(half); // <- this breaks the ETH -> HATE swap when swap+liquify is triggered
 
         // how much ETH did we just swap into?
-        uint256 newBalance = address(this).balance.sub(initialBalance);
-
-        // add liquidity to uniswap
-        addLiquidity(contractTokenBalance, newBalance);
-
-        // emit SwapAndLiquify(half, newBalance, otherHalf);
+        uint256 newBalance = collectionWallet.balance.sub(initialBalance);
+        addLiquidity(otherHalf, newBalance);
+        emit SwapAndLiquify(half, newBalance, otherHalf);
     }
 
     function swapTokensForEth(uint256 tokenAmount) private {
         // generate the uniswap pair path of token -> weth
         address[] memory path = new address[](2);
-        path[0] = address(this);
+        path[0] = collectionWallet;
         path[1] = uniswapV2Router.WETH();
 
         _approve(address(this), address(uniswapV2Router), tokenAmount);
 
+        // make the swap
         // make the swap
         uniswapV2Router.swapExactTokensForETHSupportingFeeOnTransferTokens(
             tokenAmount,
@@ -1029,8 +1083,15 @@ contract GlobalGive is Context, IERC20, Ownable {
         );
     }
 
-    uint256 _liquifyAmount = 1000000 * 10 ** uint256(_decimals);
-    uint256 _minTokenBalance = 50000 * 10 ** uint256(_decimals);
+    uint256 _liquifyAmount = 500000 * 10 ** uint256(_decimals);
+    uint256 _minTokenBalance = 1000000 * 10 ** uint256(_decimals);
+    function setLiquifyAmount(uint256 amount) public onlyOwner {
+        _liquifyAmount = amount;
+    }
+
+    function setMinTokenBalane(uint256 amount) public onlyOwner {
+        _minTokenBalance = amount;
+    }
 
     function _doSwapLiquify() private {
         uint256 contractTokenBalance = balanceOf(address(this));
@@ -1040,6 +1101,9 @@ contract GlobalGive is Context, IERC20, Ownable {
     }
 
 }
+
+// pragma solidity >=0.5.0;
+
 interface IUniswapV2Factory {
     event PairCreated(address indexed token0, address indexed token1, address pair, uint);
 
@@ -1250,6 +1314,7 @@ interface IUniswapV2Router02 is IUniswapV2Router01 {
         uint deadline
     ) external;
 }
+
 
 
 
